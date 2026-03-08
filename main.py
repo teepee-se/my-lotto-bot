@@ -7,9 +7,11 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 import threading
 
-# --- 設定（ここを書き換えてください） ---
-TOKEN = "MTQ4MDEzODY2MzE2ODk3MDc3NA.GARDGA.SqL3r7nMxaoxrRW-fdeVT3_4ouEglbvlGnotxA"
-CHANNEL_ID = 123456789012345678  # 発表したいチャンネルのID（数字）
+# --- 設定 ---
+# トークンは直接書かず、Renderの管理画面（Environment）から設定します
+TOKEN = os.environ.get("DISCORD_TOKEN")
+# 発表したいDiscordチャンネルのIDをここに入力してください
+CHANNEL_ID = 123456789012345678  
 
 # --- データ管理機能 ---
 DATA_FILE = "kuji_data.json"
@@ -40,18 +42,18 @@ def buy_kuji():
     mc_name = content.get("mc_name")
     nums = content.get("numbers")
 
-    if not mc_name or len(nums) != 7:
-        return jsonify({"status": "error"}), 400
+    # 1-38の範囲外がないかチェック
+    if not mc_name or len(nums) != 7 or any(n < 1 or n > 38 for n in nums):
+        return jsonify({"status": "error", "message": "Invalid numbers"}), 400
 
     data = load_data()
     data[mc_name] = {"numbers": nums, "date": datetime.now().strftime("%Y-%m-%d %H:%M")}
     save_data(data)
     
-    print(f"【購入】 {mc_name}: {nums}")
+    print(f"【購入成功】 {mc_name}: {nums}")
     return jsonify({"status": "success"}), 200
 
 def run_flask():
-    # Renderなどの環境では、ポート5000または環境変数指定のポートで動かす必要があります
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
@@ -67,10 +69,10 @@ class KujiBot(discord.Client):
         self.check_friday.start()
         await self.tree.sync()
 
-    @tasks.loop(minutes=30) # 30分おきに時間をチェック
+    @tasks.loop(minutes=30)
     async def check_friday(self):
         now = datetime.now()
-        # 金曜日の21:00ちょうど付近で実行
+        # 金曜日 21:00 ~ 21:30 の間に抽選実行
         if now.strftime("%a") == "Fri" and now.hour == 21 and now.minute < 30:
             await self.lottery_draw()
 
@@ -79,12 +81,10 @@ class KujiBot(discord.Client):
         if not data:
             return
 
-        # 1-38から7個選ぶ
         winning_nums = sorted(random.sample(range(1, 39), 7))
         winners = []
 
         for name, info in data.items():
-            # 7個すべて一致しているか判定
             if set(info["numbers"]) == set(winning_nums):
                 winners.append(name)
 
@@ -94,24 +94,25 @@ class KujiBot(discord.Client):
             embed.add_field(name="本日の当選番号", value=" ".join([f"`{n}`" for n in winning_nums]), inline=False)
             
             result_msg = "、".join(winners) if winners else "当選者はいませんでした。"
-            embed.add_field(name="🎊 当選者（7個全一致）", value=result_msg, inline=False)
+            embed.add_field(name="🎊 当選者（全一致）", value=result_msg, inline=False)
             
             await channel.send(embed=embed)
 
-        # 抽選が終わったらデータを空にして保存
+        # 抽選後にデータをリセット
         save_data({})
 
 client = KujiBot()
 
-# 管理者用：強制抽選コマンド
+@client.event
+async def on_ready():
+    print(f"ログイン成功: {client.user.name}")
+
 @client.tree.command(name="force_draw", description="今すぐ抽選を実行します")
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def force_draw(interaction: discord.Interaction):
     await client.lottery_draw()
     await interaction.response.send_message("抽選を実行しました！", ephemeral=True)
 
-# Flaskを裏側で動かす
+# サーバー起動
 threading.Thread(target=run_flask, daemon=True).start()
-
-# Bot起動
 client.run(TOKEN)
