@@ -11,7 +11,7 @@ import threading
 # トークンは直接書かず、Renderの管理画面（Environment）から設定します
 TOKEN = os.environ.get("DISCORD_TOKEN")
 # 発表したいDiscordチャンネルのIDをここに入力してください
-CHANNEL_ID = 123456789012345678  
+CHANNEL_ID = 1480354347908071565  
 
 # --- データ管理機能 ---
 DATA_FILE = "kuji_data.json"
@@ -116,3 +116,4 @@ async def force_draw(interaction: discord.Interaction):
 # サーバー起動
 threading.Thread(target=run_flask, daemon=True).start()
 client.run(TOKEN)
+
